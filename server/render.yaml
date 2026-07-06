@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: robot-vending-iot-server
+    env: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MQTT_PORT
+        value: "8883"
+      - key: COMMAND_TIMEOUT_MS
+        value: "5000"
+      - key: REQUEST_JSON_LIMIT
+        value: 64kb
+      - key: STARTUP_DEVICE_CHECK_DELAY_MS
+        value: "1200"
+      - key: LOG_LEVEL
+        value: off
+      - key: MQTT_HOST
+        sync: false
+      - key: MQTT_USERNAME
+        sync: false
+      - key: MQTT_PASSWORD
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
