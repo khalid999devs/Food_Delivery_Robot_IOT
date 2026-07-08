@@ -10,7 +10,9 @@ const activeOrderStatuses = new Set([
   "vending_completed",
   "robot_delivery_sent",
   "robot_delivering",
+  "blocked_by_obstacle",
   "station_reached",
+  "awaiting_delivery_receipt",
   "delivery_received"
 ]);
 
@@ -49,11 +51,12 @@ function getCurrentOrder() {
   return getLatestActiveOrder() || getAllOrders()[0] || null;
 }
 
-function createOrder({ orderId, targetStation, a, b }) {
+function createOrder({ orderId, targetStation, a, b, userLocation = null }) {
   const createdAt = nowIso();
   const order = {
     orderId,
     targetStation,
+    userLocation,
     products: { a, b },
     status: "created",
     robotPrepareCommandId: null,
@@ -68,7 +71,11 @@ function createOrder({ orderId, targetStation, a, b }) {
   };
 
   orders.set(orderId, order);
-  addTimeline(order, "info", "Order created", { targetStation, products: order.products });
+  addTimeline(order, "info", "Order created", {
+    targetStation,
+    userLocation,
+    products: order.products
+  });
   return order;
 }
 

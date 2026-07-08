@@ -4,6 +4,9 @@ Simple two-app IoT lab project for reliable command transfer between a React adm
 
 No monorepo tooling, no workspaces, and no shared root `package.json` are used.
 
+For a short GPT-friendly explanation of the full website algorithm and future
+customer-facing plan, see [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md).
+
 ## Architecture
 
 ```text
@@ -19,12 +22,16 @@ Current focus:
 - MQTT command publish with QoS 1
 - MQTT command messages are not retained
 - backend waits for acknowledgement
+- order flow between robot and vending
+- robot telemetry and ultrasonic safety
 
 Not included yet:
 
-- telemetry
 - database
 - authentication UI
+- customer-facing vending UI
+- payment flow
+- production GPS route persistence
 
 ## Folder Structure
 
@@ -189,6 +196,9 @@ Set these environment variables in Render:
 - `COMMAND_TIMEOUT_MS`
 - `REQUEST_JSON_LIMIT`
 - `STARTUP_DEVICE_CHECK_DELAY_MS`
+- `DEVICE_PING_INTERVAL_MS`
+- `DEVICE_OFFLINE_TIMEOUT_MS`
+- `DEVICE_HEALTH_SWEEP_MS`
 - `LOG_LEVEL`
 
 Do not commit real `.env` files or MQTT credentials.
@@ -205,8 +215,8 @@ variables are missing. `FRONTEND_ORIGIN` may be comma-separated if you need both
 local and deployed frontend origins.
 
 Use `LOG_LEVEL=off` on Render to keep remote logs quiet. After every MQTT
-connect/reconnect, the backend waits briefly, then pings `robot_car_001` and
-`vending_001` so online device state is refreshed after a server restart.
+connect/reconnect, and then every 10 seconds, the backend pings `robot_car_001`
+and `vending_001`. Busy devices are skipped so health probes do not interrupt commands.
 
 ## Vercel Frontend Deployment
 
@@ -336,17 +346,31 @@ Example request:
 {
   "a": 1,
   "b": 1,
-  "targetStation": "station_2"
+  "targetStation": "station_4",
+  "userLocation": {
+    "latitude": 22.8997,
+    "longitude": 89.5023,
+    "accuracy": 8,
+    "capturedAt": "ISO_DATE"
+  }
 }
 ```
 
 Backend flow:
 
 1. Create `orderId`.
-2. Send `prepare_for_pickup` to `robot_car_001`.
+2. Send `prepare_for_pickup` with the order, station, quantities, expected product count, and user location.
 3. If robot acknowledges, send `dispense` to `vending_001`.
 4. Return after vending acknowledges `accepted`, `success`, or `ready`.
-5. Later, when vending publishes matching `order_completed` event or `completed` status, send `start_delivery` to `robot_car_001`.
+5. Robot `product_detected` events update the order but do not start movement.
+6. Robot `product_loaded` starts delivery after validating any reported cart count.
+7. Vending completion updates progress but does not bypass cart IR confirmation.
+8. A command ID guard ensures duplicate robot completion events send `start_delivery` only once.
+9. The simulation button remains an explicit demo-only way to start delivery.
+
+The dashboard supports `station_1` through `station_4`. Selecting a station requests
+browser geolocation; the next order sends those coordinates to the backend. Browser
+location requires HTTPS in production or `localhost` during development.
 
 Order endpoints:
 
@@ -362,6 +386,6 @@ Order endpoints:
 - Commands are not retained.
 - Every command has `commandId`.
 - Backend waits for ack.
-- Telemetry will be added later.
+- Robot telemetry is available for live lab monitoring.
 - Database will be added later.
 # Food_Delivery_Robot_IOT

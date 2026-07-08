@@ -1,6 +1,11 @@
 const express = require("express");
 
-const { devices, getAllowedCommands, hasDevice } = require("../devices");
+const {
+  devices,
+  getAllowedCommands,
+  hasDevice,
+  refreshDeviceOnlineStates
+} = require("../devices");
 const requireApiKey = require("../middleware/requireApiKey");
 const {
   buildCommandPayload,
@@ -12,6 +17,8 @@ const router = express.Router();
 router.use(requireApiKey);
 
 router.get("/", (req, res) => {
+  refreshDeviceOnlineStates();
+
   res.json({
     success: true,
     devices
@@ -27,6 +34,8 @@ router.get("/:deviceId", (req, res) => {
       message: "Device not found"
     });
   }
+
+  refreshDeviceOnlineStates();
 
   return res.json({
     success: true,

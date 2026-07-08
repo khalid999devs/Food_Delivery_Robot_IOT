@@ -47,8 +47,16 @@ FRONTEND_ORIGIN=http://localhost:5173
 COMMAND_TIMEOUT_MS=5000
 REQUEST_JSON_LIMIT=64kb
 STARTUP_DEVICE_CHECK_DELAY_MS=1200
+DEVICE_PING_INTERVAL_MS=10000
+DEVICE_OFFLINE_TIMEOUT_MS=25000
+DEVICE_HEALTH_SWEEP_MS=3000
 LOG_LEVEL=info
 ```
+
+The backend automatically pings both devices every 10 seconds, while skipping devices
+that already have a command in flight. Acknowledgements mark devices online; ping
+timeouts mark them offline. The 25-second passive stale window catches lost connections,
+and freshness is evaluated every 3 seconds.
 
 For production, set `NODE_ENV=production`. The server will fail fast if `MQTT_HOST`,
 `MQTT_USERNAME`, `MQTT_PASSWORD`, `API_KEY`, or `FRONTEND_ORIGIN` is missing.
@@ -102,6 +110,9 @@ Set these environment variables in Render:
 - `COMMAND_TIMEOUT_MS=5000`
 - `REQUEST_JSON_LIMIT=64kb`
 - `STARTUP_DEVICE_CHECK_DELAY_MS=1200`
+- `DEVICE_PING_INTERVAL_MS=10000`
+- `DEVICE_OFFLINE_TIMEOUT_MS=25000`
+- `DEVICE_HEALTH_SWEEP_MS=3000`
 - `LOG_LEVEL=off`
 
 The included `render.yaml` lists these values without committing secrets. `LOG_LEVEL=off`
@@ -147,8 +158,17 @@ Start the real dispense and delivery flow:
 {
   "a": 1,
   "b": 1,
-  "targetStation": "station_2"
+  "targetStation": "station_4",
+  "userLocation": {
+    "latitude": 22.8997,
+    "longitude": 89.5023,
+    "accuracy": 8
+  }
 }
 ```
 
-The backend first commands `robot_car_001` with `prepare_for_pickup`, then sends vending `dispense`, then starts robot `start_delivery` after matching vending completion arrives by MQTT.
+The backend first commands `robot_car_001` with `prepare_for_pickup`, including
+`expectedProducts` and the optional browser location, then sends vending `dispense`.
+Vending completion updates the order, but only robot `product_loaded` starts the real
+`start_delivery` path. The delivery command ID prevents duplicate starts. The simulation
+endpoint remains available as an explicit demo bypass.

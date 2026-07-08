@@ -1,40 +1,25 @@
 const express = require("express");
 
 const requireApiKey = require("../middleware/requireApiKey");
+const { parseOrderRequest } = require("../orderRequest");
 const { cancelOrder, startDispenseAndDeliver } = require("../services/orderFlowService");
 const { markDeliveryReceived } = require("../services/orderCompletionService");
 const { activeOrderStatuses, getAllOrders, getCurrentOrder, getLatestActiveOrder, getOrder } =
   require("../services/orderStore");
 
 const router = express.Router();
-const allowedStations = new Set(["station_1", "station_2", "station_3"]);
-const deliveryReceivableStatuses = new Set(["robot_delivery_sent", "robot_delivering", "station_reached", "delivery_received"]);
+const deliveryReceivableStatuses = new Set(["awaiting_delivery_receipt", "delivery_received"]);
 
 router.use(requireApiKey);
 
-function toQuantity(value) {
-  const quantity = Number(value);
-  return Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : NaN;
-}
-
 router.post("/dispense-and-deliver", async (req, res) => {
-  const body = req.body || {};
-  const a = toQuantity(body.a);
-  const b = toQuantity(body.b);
-  const { targetStation } = body;
+  const request = parseOrderRequest(req.body);
 
-  if (!allowedStations.has(targetStation)) {
+  if (request.error) {
     return res.status(400).json({
       success: false,
-      message: "Invalid targetStation",
-      allowedStations: Array.from(allowedStations)
-    });
-  }
-
-  if (!Number.isFinite(a) || !Number.isFinite(b) || a + b <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: "Products a and b must be numbers >= 0, and a + b must be greater than 0"
+      message: request.error,
+      ...(request.allowedStations ? { allowedStations: request.allowedStations } : {})
     });
   }
 
@@ -48,7 +33,7 @@ router.post("/dispense-and-deliver", async (req, res) => {
     });
   }
 
-  const result = await startDispenseAndDeliver({ a, b, targetStation });
+  const result = await startDispenseAndDeliver(request.value);
   return res.status(result.statusCode).json(result.body);
 });
 
@@ -66,7 +51,7 @@ router.get("/current", (req, res) => {
   });
 });
 
-function sendDeliveryReceivedResponse(req, res, order) {
+async function sendDeliveryReceivedResponse(req, res, order) {
   if (!order) {
     return res.status(404).json({
       success: false,
@@ -82,16 +67,20 @@ function sendDeliveryReceivedResponse(req, res, order) {
     });
   }
 
-  const updatedOrder = markDeliveryReceived(order.orderId);
+  const result = await markDeliveryReceived(order.orderId);
+  const allAcknowledged = result.notifications?.allAcknowledged !== false;
 
   return res.json({
-    success: true,
-    message: "Delivery received. System will be ready again in 5 seconds.",
-    order: updatedOrder
+    success: allAcknowledged,
+    message: allAcknowledged
+      ? "Delivery received. Robot and vending were notified."
+      : "Delivery received, but one device did not acknowledge the notification.",
+    order: result.order,
+    notifications: result.notifications
   });
 }
 
-router.post("/current/delivery-received", (req, res) => {
+router.post("/current/delivery-received", async (req, res) => {
   const order = getLatestActiveOrder() || getCurrentOrder();
   return sendDeliveryReceivedResponse(req, res, order);
 });
@@ -112,7 +101,7 @@ router.get("/:orderId", (req, res) => {
   });
 });
 
-router.post("/:orderId/delivery-received", (req, res) => {
+router.post("/:orderId/delivery-received", async (req, res) => {
   const order = getOrder(req.params.orderId);
   if (!order) {
     return res.status(404).json({

@@ -2,7 +2,7 @@ const {
   buildCommandPayload,
   publishCommandAndWaitForAck
 } = require("./commandService");
-const { addTimeline, createOrder, getOrder, setOrderStatus } = require("./orderStore");
+const { createOrder, getOrder, setOrderStatus } = require("./orderStore");
 function isSuccessfulRobotAck(ack) {
   return ["success", "ready_for_pickup", "ready"].includes(String(ack?.status || "").toLowerCase());
 }
@@ -15,40 +15,19 @@ function routeResponse(statusCode, body) {
   return { statusCode, body };
 }
 
-async function sendRobotDeliveryForOrder(orderId) {
-  const order = getOrder(orderId);
-
-  if (!order || order.status === "failed" || order.robotDeliveryCommandId) {
-    return;
-  }
-
-  const payload = buildCommandPayload("robot_car_001", "start_delivery", {
-    orderId,
-    targetStation: order.targetStation
-  });
-
-  order.robotDeliveryCommandId = payload.commandId;
-  setOrderStatus(order, "robot_delivery_sent", "Robot delivery command sent", payload);
-
-  try {
-    const ack = await publishCommandAndWaitForAck("robot_car_001", payload);
-    order.robotDeliveryAck = ack;
-    addTimeline(order, "success", "Robot delivery started", ack);
-  } catch (error) {
-    setOrderStatus(order, "failed", "Robot delivery command failed", {
-      message: error.message
-    });
-  }
-}
-
-async function startDispenseAndDeliver({ a, b, targetStation }) {
+async function startDispenseAndDeliver({ a, b, targetStation, userLocation }) {
   const orderId = `ORD_${Date.now()}`;
-  const order = createOrder({ orderId, targetStation, a, b });
+  const order = createOrder({ orderId, targetStation, a, b, userLocation });
+  const expectedProducts = Math.max(1, a + b);
 
   try {
     const robotPayload = buildCommandPayload("robot_car_001", "prepare_for_pickup", {
       orderId,
-      targetStation
+      targetStation,
+      a,
+      b,
+      expectedProducts,
+      userLocation
     });
     order.robotPrepareCommandId = robotPayload.commandId;
     setOrderStatus(order, "robot_prepare_sent", "Robot prepare command sent", robotPayload);
@@ -57,10 +36,18 @@ async function startDispenseAndDeliver({ a, b, targetStation }) {
     order.robotReadyAck = robotAck;
 
     if (!isSuccessfulRobotAck(robotAck)) {
-      setOrderStatus(order, "failed", "Robot prepare acknowledgement was not successful", robotAck);
-      return routeResponse(502, {
+      const blocked = String(robotAck?.status || "").toLowerCase() === "blocked";
+      setOrderStatus(
+        order,
+        blocked ? "blocked_by_obstacle" : "failed",
+        blocked ? "Robot preparation blocked by obstacle" : "Robot prepare acknowledgement failed",
+        robotAck
+      );
+      return routeResponse(blocked ? 409 : 502, {
           success: false,
-          message: "Robot did not acknowledge prepare_for_pickup successfully",
+          message: blocked
+            ? "Robot preparation was blocked by obstacle"
+            : "Robot did not acknowledge prepare_for_pickup successfully",
           order,
           robotAck
         });
@@ -145,6 +132,5 @@ async function cancelOrder(orderId) {
 
 module.exports = {
   cancelOrder,
-  sendRobotDeliveryForOrder,
   startDispenseAndDeliver
 };

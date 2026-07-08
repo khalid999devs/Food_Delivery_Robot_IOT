@@ -60,6 +60,28 @@ export function getDevices() {
   return request("/api/devices");
 }
 
+export function getLatestDeviceTelemetry(deviceId) {
+  return request(`/api/devices/${deviceId}/telemetry/latest`);
+}
+
+export function getDeviceTelemetryHistory(deviceId) {
+  return request(`/api/devices/${deviceId}/telemetry/history`);
+}
+
+export function startDeviceTelemetry(deviceId) {
+  return request(`/api/devices/${deviceId}/telemetry/start`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export function stopDeviceTelemetry(deviceId) {
+  return request(`/api/devices/${deviceId}/telemetry/stop`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
 export function getCurrentOrder() {
   return request("/api/orders/current");
 }
@@ -71,15 +93,22 @@ export function sendDeviceCommand(deviceId, command, params = {}) {
   });
 }
 
-export function runDispenseAndDeliverOrder(a, b, targetStation) {
+export function runDispenseAndDeliverOrder(a, b, targetStation, userLocation = null) {
   return request("/api/orders/dispense-and-deliver", {
     method: "POST",
-    body: JSON.stringify({ a, b, targetStation })
+    body: JSON.stringify({ a, b, targetStation, userLocation })
   });
 }
 
 export function markCurrentOrderDeliveryReceived() {
   return request("/api/orders/current/delivery-received", {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export function simulateOrderVendingCompleted(orderId) {
+  return request(`/api/orders/${orderId}/simulate-vending-completed`, {
     method: "POST",
     body: JSON.stringify({})
   });

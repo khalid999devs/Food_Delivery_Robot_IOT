@@ -1,9 +1,15 @@
 const config = require("../config");
-const { devices } = require("../devices");
+const { devices, refreshDeviceOnlineStates } = require("../devices");
 const logger = require("../logger");
-const { buildCommandPayload, publishCommandAndWaitForAck } = require("./commandService");
+const {
+  buildCommandPayload,
+  hasPendingCommandForDevice,
+  publishCommandAndWaitForAck
+} = require("./commandService");
 
 let checkTimer = null;
+let healthSweepTimer = null;
+let periodicPingTimer = null;
 let checking = false;
 let lastCheckAt = null;
 
@@ -31,7 +37,11 @@ async function checkKnownDevices(reason = "startup") {
   checking = true;
   lastCheckAt = new Date().toISOString();
 
-  for (const deviceId of Object.keys(devices)) {
+  const checks = Object.keys(devices).map(async (deviceId) => {
+    if (hasPendingCommandForDevice(deviceId)) {
+      return;
+    }
+
     try {
       await pingDevice(deviceId, reason);
     } catch (error) {
@@ -41,8 +51,9 @@ async function checkKnownDevices(reason = "startup") {
 
       logger.debug(`Device check failed for ${deviceId}: ${error.message}`);
     }
-  }
+  });
 
+  await Promise.all(checks);
   checking = false;
 }
 
@@ -53,8 +64,35 @@ function scheduleKnownDeviceCheck(reason = "startup") {
   }, config.startupDeviceCheckDelayMs);
 }
 
+function startDeviceHealthMonitoring() {
+  clearInterval(healthSweepTimer);
+  clearInterval(periodicPingTimer);
+  refreshDeviceOnlineStates();
+  healthSweepTimer = setInterval(
+    refreshDeviceOnlineStates,
+    Math.max(1000, config.deviceHealthSweepMs)
+  );
+  healthSweepTimer.unref();
+  periodicPingTimer = setInterval(
+    () => checkKnownDevices("periodic"),
+    Math.max(5000, config.devicePingIntervalMs)
+  );
+  periodicPingTimer.unref();
+}
+
+function stopDeviceHealthMonitoring() {
+  clearTimeout(checkTimer);
+  clearInterval(healthSweepTimer);
+  clearInterval(periodicPingTimer);
+  checkTimer = null;
+  healthSweepTimer = null;
+  periodicPingTimer = null;
+}
+
 module.exports = {
   checkKnownDevices,
   getDeviceCheckState,
-  scheduleKnownDeviceCheck
+  scheduleKnownDeviceCheck,
+  startDeviceHealthMonitoring,
+  stopDeviceHealthMonitoring
 };

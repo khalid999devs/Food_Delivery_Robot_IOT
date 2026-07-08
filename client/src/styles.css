@@ -183,6 +183,11 @@ pre {
   color: #991b1b;
 }
 
+.warning-status {
+  background: #fef0c7;
+  color: #93370d;
+}
+
 .card {
   border: 1px solid #d8dee9;
   border-radius: 8px;
@@ -272,6 +277,12 @@ pre {
 
 .notice-banner.compact {
   margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+
+.obstacle-warning.compact {
+  margin-bottom: 14px;
+  padding: 12px 14px;
   font-size: 0.9rem;
 }
 
@@ -368,6 +379,54 @@ pre {
   display: block;
   overflow-wrap: anywhere;
   color: #101828;
+}
+
+.robot-status-grid .safety-danger {
+  border-color: #fda29b;
+  background: #fff1f2;
+}
+
+.robot-status-grid .safety-danger span,
+.robot-status-grid .safety-danger strong {
+  color: #b42318;
+}
+
+.telemetry-toggle {
+  background: #0f7c86;
+}
+
+.telemetry-toggle:hover:not(:disabled) {
+  background: #155e75;
+}
+
+.simulation-button {
+  background: #b54708;
+}
+
+.simulation-button:hover:not(:disabled) {
+  background: #93370d;
+}
+
+.keyboard-note {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 18px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f9fafb;
+  color: #475467;
+  font-size: 0.82rem;
+}
+
+.keyboard-note.enabled {
+  border-color: #6ce9a6;
+  background: #ecfdf3;
+  color: #166534;
+}
+
+.keyboard-note span {
+  line-height: 1.45;
 }
 
 .vending-stats {
@@ -495,7 +554,7 @@ pre {
 
 .station-selector div {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -510,6 +569,22 @@ pre {
   background: #0f7c86;
   color: #ffffff;
   border-color: #0f7c86;
+}
+
+.location-state {
+  min-height: 20px;
+  margin: 9px 0 0;
+  color: #667085;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.location-state.ready {
+  color: #067647;
+}
+
+.location-state.error {
+  color: #b42318;
 }
 
 .vending-actions {
@@ -585,7 +660,7 @@ pre {
 
 .order-summary-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -610,6 +685,11 @@ pre {
   border-left-color: #b42318;
 }
 
+.timeline-item.warning {
+  border-left-color: #f79009;
+  background: #fffaeb;
+}
+
 .timeline-item span {
   display: block;
   margin-bottom: 4px;
@@ -619,6 +699,146 @@ pre {
 }
 
 .timeline-item strong {
+  color: #101828;
+  overflow-wrap: anywhere;
+}
+
+.telemetry-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 24px;
+  background: rgba(16, 24, 40, 0.72);
+}
+
+.telemetry-panel {
+  width: min(1040px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  box-shadow: 0 24px 64px rgba(16, 24, 40, 0.3);
+}
+
+.telemetry-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.telemetry-header h2,
+.telemetry-header p,
+.sensor-card h3,
+.sensor-card p {
+  margin: 0;
+}
+
+.telemetry-header h2 {
+  margin-top: 4px;
+  font-size: 1.55rem;
+}
+
+.telemetry-header > div > p:last-child {
+  margin-top: 5px;
+  color: #667085;
+}
+
+.telemetry-close {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid #d0d5dd;
+  background: #ffffff;
+  color: #344054;
+}
+
+.telemetry-close:hover:not(:disabled) {
+  background: #f2f4f7;
+}
+
+.obstacle-warning {
+  margin-bottom: 16px;
+  border: 1px solid #f04438;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fee4e2;
+  color: #912018;
+  font-weight: 800;
+}
+
+.telemetry-error,
+.telemetry-loading {
+  margin-bottom: 16px;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.sensor-card {
+  min-width: 0;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f9fafb;
+}
+
+.sensor-card h3 {
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.sensor-card.ultrasonic-card.danger {
+  border-color: #f04438;
+  background: #fff1f2;
+  box-shadow: inset 4px 0 #d92d20;
+}
+
+.sensor-card.ultrasonic-card.danger h3,
+.sensor-card.ultrasonic-card.danger .sensor-value strong {
+  color: #b42318;
+}
+
+.sensor-note {
+  margin: -4px 0 12px !important;
+  color: #b54708;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.sensor-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sensor-value {
+  min-width: 0;
+  border-top: 1px solid #e4e7ec;
+  padding-top: 8px;
+}
+
+.sensor-value span {
+  display: block;
+  margin-bottom: 3px;
+  color: #667085;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sensor-value strong {
+  display: block;
   color: #101828;
   overflow-wrap: anywhere;
 }
@@ -656,6 +876,15 @@ pre {
 
   .connection-badge {
     width: fit-content;
+  }
+
+  .telemetry-overlay {
+    place-items: start center;
+    padding: 16px;
+  }
+
+  .telemetry-panel {
+    max-height: none;
   }
 }
 
@@ -736,5 +965,27 @@ pre {
     min-height: 96px;
     max-height: 220px;
     font-size: 0.76rem;
+  }
+
+  .telemetry-overlay {
+    padding: 8px;
+  }
+
+  .telemetry-panel {
+    min-height: calc(100vh - 16px);
+    padding: 14px;
+  }
+
+  .telemetry-header {
+    gap: 12px;
+  }
+
+  .telemetry-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .telemetry-grid,
+  .sensor-values {
+    grid-template-columns: 1fr;
   }
 }

@@ -18,6 +18,12 @@ services:
         value: 64kb
       - key: STARTUP_DEVICE_CHECK_DELAY_MS
         value: "1200"
+      - key: DEVICE_PING_INTERVAL_MS
+        value: "10000"
+      - key: DEVICE_OFFLINE_TIMEOUT_MS
+        value: "25000"
+      - key: DEVICE_HEALTH_SWEEP_MS
+        value: "3000"
       - key: LOG_LEVEL
         value: off
       - key: MQTT_HOST

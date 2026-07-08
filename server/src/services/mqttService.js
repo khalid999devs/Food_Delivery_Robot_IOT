@@ -3,10 +3,11 @@ const mqtt = require("mqtt");
 const config = require("../config");
 const createHttpError = require("../httpError");
 const logger = require("../logger");
-const { eventTopic, statusTopic } = require("../topics");
+const { eventTopic, statusTopic, telemetryTopic } = require("../topics");
 const { rejectAllPendingCommands, setMqttClient } = require("./commandService");
 const { scheduleKnownDeviceCheck } = require("./deviceHealthService");
 const { handleEventMessage, handleStatusMessage } = require("./messageHandlers");
+const { handleTelemetryMessage } = require("./telemetryHandler");
 const {
   handleMqttTestMessage,
   mqttTestTopic,
@@ -47,13 +48,20 @@ function startMqtt() {
     mqttConnected = true;
     logger.info("Connected to MQTT broker");
 
-    mqttClient.subscribe([statusTopic("+"), eventTopic("+"), mqttTestTopic], { qos: 1 }, (error) => {
+    const subscriptions = [
+      statusTopic("+"),
+      eventTopic("+"),
+      telemetryTopic("+"),
+      mqttTestTopic
+    ];
+
+    mqttClient.subscribe(subscriptions, { qos: 1 }, (error) => {
       if (error) {
         logger.error(`Failed to subscribe to MQTT topics: ${error.message}`);
         return;
       }
 
-      logger.info(`Subscribed to ${statusTopic("+")}, ${eventTopic("+")}, and ${mqttTestTopic}`);
+      logger.info(`Subscribed to ${subscriptions.join(", ")}`);
       scheduleKnownDeviceCheck("mqtt_connected");
     });
   });
@@ -89,6 +97,11 @@ function startMqtt() {
 
       if (topic.endsWith("/event")) {
         handleEventMessage(topic, message);
+        return;
+      }
+
+      if (topic.endsWith("/telemetry")) {
+        handleTelemetryMessage(topic, message);
       }
     } catch (error) {
       logger.error(`MQTT message handler failed for ${topic}: ${error.message}`);

@@ -1,23 +1,30 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   API_BASE_URL,
   getCurrentOrder,
   getDevices,
   getHealth,
+  getLatestDeviceTelemetry,
   markCurrentOrderDeliveryReceived,
   runDispenseAndDeliverOrder,
   runMqttTestPing,
   runRobotArrivedFlow,
-  sendDeviceCommand
+  sendDeviceCommand,
+  simulateOrderVendingCompleted,
+  startDeviceTelemetry,
+  stopDeviceTelemetry
 } from "./api.js";
+import TelemetryPanel from "./TelemetryPanel.jsx";
 
 const robotCommands = [
   { label: "Ping", command: "ping", params: {} },
+  { label: "Manual Mode On", command: "manual_on", params: {} },
+  { label: "Manual Mode Off", command: "manual_off", params: {} },
   { label: "Forward", command: "forward", params: { speed: 160, durationMs: 1000 } },
   { label: "Backward", command: "backward", params: { speed: 160, durationMs: 1000 } },
   { label: "Left", command: "left", params: { speed: 140, durationMs: 500 } },
   { label: "Right", command: "right", params: { speed: 140, durationMs: 500 } },
-  { label: "Stop", command: "stop", params: {} },
+  { label: "Emergency Stop", command: "stop", params: {} },
   { label: "Line Follow On", command: "line_follow_on", params: {} },
   { label: "Line Follow Off", command: "line_follow_off", params: {} }
 ];
@@ -25,7 +32,8 @@ const robotCommands = [
 const stationOptions = [
   { label: "Station 1", value: "station_1" },
   { label: "Station 2", value: "station_2" },
-  { label: "Station 3", value: "station_3" }
+  { label: "Station 3", value: "station_3" },
+  { label: "Station 4", value: "station_4" }
 ];
 
 const activeOrderStatuses = new Set([
@@ -39,7 +47,9 @@ const activeOrderStatuses = new Set([
   "vending_completed",
   "robot_delivery_sent",
   "robot_delivering",
+  "blocked_by_obstacle",
   "station_reached",
+  "awaiting_delivery_receipt",
   "delivery_received"
 ]);
 
@@ -54,9 +64,11 @@ const orderStatusLabels = {
   vending_completed: "Vending completed",
   robot_delivery_sent: "Robot delivery command sent",
   robot_delivering: "Robot delivering to station",
+  blocked_by_obstacle: "Blocked by obstacle",
   station_reached: "Robot reached station",
+  awaiting_delivery_receipt: "Waiting for delivery receipt",
   delivery_received: "Delivery received",
-  completed: "Delivery completed",
+  completed: "Ready for next order",
   failed: "Failed"
 };
 
@@ -83,6 +95,22 @@ function clampQuantity(value, stock) {
 
 function getStatusBoolean(value) {
   return value === true || value === 1 || value === "true" || value === "1";
+}
+
+function getRobotSafety(device) {
+  const ultrasonic =
+    device?.latestStatus?.ultrasonic || device?.latestTelemetry?.ultrasonic || {};
+  const distanceCm = Number(ultrasonic.distanceCm);
+  const hasDistance = Number.isFinite(distanceCm) && distanceCm >= 0;
+  const obstacleStopActive = getStatusBoolean(ultrasonic.obstacleStopActive);
+
+  return {
+    ultrasonic,
+    distanceCm,
+    hasDistance,
+    obstacleStopActive,
+    danger: obstacleStopActive || (hasDistance && distanceCm < 8)
+  };
 }
 
 function getNonNegativeNumber(value) {
@@ -123,6 +151,28 @@ function formatTime(value) {
   });
 }
 
+function getBrowserLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Browser location is not supported"));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        resolve({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          capturedAt: new Date().toISOString()
+        });
+      },
+      (error) => reject(new Error(error.message || "Unable to read browser location")),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  });
+}
+
 function DeviceCard({
   title,
   deviceId,
@@ -133,13 +183,23 @@ function DeviceCard({
   mqttConnected,
   isInitialLoading,
   currentOrder,
-  onDeliveryReceived
+  onDeliveryReceived,
+  onToggleTelemetry,
+  telemetryOpen,
+  onSimulateOrderCompleted
 }) {
   const canReceiveDelivery =
     deviceId === "robot_car_001" &&
     currentOrder &&
-    ["robot_delivery_sent", "robot_delivering", "station_reached"].includes(currentOrder.status);
+    currentOrder.status === "awaiting_delivery_receipt";
   const commandsDisabled = Boolean(loadingAction) || isInitialLoading || !mqttConnected;
+  const {
+    ultrasonic,
+    obstacleStopActive,
+    danger: ultrasonicDanger
+  } = getRobotSafety(device);
+  const simulationLoading = loadingAction === "robot:simulate-order-completed";
+  const manualModeOn = getStatusBoolean(device?.latestStatus?.manualMode);
 
   return (
     <section className="card device-card">
@@ -155,6 +215,12 @@ function DeviceCard({
 
       {!mqttConnected ? (
         <div className="notice-banner compact">MQTT is disconnected. Commands are paused.</div>
+      ) : null}
+
+      {deviceId === "robot_car_001" && ultrasonicDanger ? (
+        <div className="obstacle-warning compact" role="alert">
+          Obstacle under 8 cm - robot stopped. Movement and delivery actions are blocked.
+        </div>
       ) : null}
 
       <dl className="device-meta">
@@ -190,6 +256,29 @@ function DeviceCard({
             <span>Latest Event</span>
             <strong>{device?.latestEvent?.event || "--"}</strong>
           </div>
+          <div>
+            <span>Manual Mode</span>
+            <strong>{manualModeOn ? "On" : "Off"}</strong>
+          </div>
+          <div className={ultrasonicDanger ? "safety-danger" : ""}>
+            <span>Ultrasonic Distance</span>
+            <strong>
+              {ultrasonic?.distanceCm === null || ultrasonic?.distanceCm === undefined
+                ? "--"
+                : `${ultrasonic.distanceCm} cm`}
+            </strong>
+          </div>
+          <div className={ultrasonicDanger ? "safety-danger" : ""}>
+            <span>Obstacle Stop</span>
+            <strong>
+              {ultrasonic?.obstacleStopActive === null ||
+              ultrasonic?.obstacleStopActive === undefined
+                ? "--"
+                : obstacleStopActive
+                  ? "Active"
+                  : "Clear"}
+            </strong>
+          </div>
         </div>
       ) : null}
 
@@ -197,6 +286,11 @@ function DeviceCard({
         {commands.map((item) => {
           const actionKey = `${deviceId}:${item.command}`;
           const isLoading = loadingAction === actionKey;
+          const isMovement = ["forward", "backward", "left", "right"].includes(item.command);
+          const isEmergencyStop = item.command === "stop";
+          const disabled = isEmergencyStop
+            ? isInitialLoading || !mqttConnected
+            : commandsDisabled || (isMovement && ultrasonicDanger);
 
           return (
             <button
@@ -206,7 +300,7 @@ function DeviceCard({
                 isLoading ? "is-loading" : ""
               }`}
               onClick={() => onCommand(deviceId, item.command, item.params, actionKey)}
-              disabled={commandsDisabled}
+              disabled={disabled}
               aria-busy={isLoading}
             >
               {isLoading ? "Sending..." : item.label}
@@ -214,6 +308,55 @@ function DeviceCard({
           );
         })}
       </div>
+
+      {deviceId === "robot_car_001" ? (
+        <div className={`keyboard-note ${manualModeOn ? "enabled" : ""}`}>
+          <strong>Keyboard control: {manualModeOn ? "On" : "Off"}</strong>
+          <span>
+            W/A/S/D or arrow keys move the robot. Movement continues until key release or Stop.
+          </span>
+        </div>
+      ) : null}
+
+      {deviceId === "robot_car_001" ? (
+        <>
+          <button
+            type="button"
+            className={`simulation-button full-width-action ${
+              simulationLoading ? "is-loading" : ""
+            }`}
+            onClick={onSimulateOrderCompleted}
+            disabled={commandsDisabled || !device?.online || ultrasonicDanger}
+            aria-busy={simulationLoading}
+            title={
+              ultrasonicDanger
+                ? "Clear the ultrasonic obstacle before starting the car"
+                : "Simulate vending completion and start the robot delivery"
+            }
+          >
+            {simulationLoading
+              ? "Starting Delivery..."
+              : "Simulate Order Completed / Start Delivery"}
+          </button>
+          <button
+            type="button"
+            className={`telemetry-toggle full-width-action ${
+              loadingAction?.startsWith("robot:telemetry-") ? "is-loading" : ""
+            }`}
+            onClick={onToggleTelemetry}
+            disabled={commandsDisabled}
+            aria-busy={loadingAction?.startsWith("robot:telemetry-")}
+          >
+            {loadingAction?.startsWith("robot:telemetry-")
+              ? telemetryOpen
+                ? "Stopping..."
+                : "Starting..."
+              : telemetryOpen
+                ? "Stop Live Telemetry"
+                : "Live Sensors / Telemetry"}
+          </button>
+        </>
+      ) : null}
 
       {canReceiveDelivery ? (
         <button
@@ -251,9 +394,12 @@ function VendingCard({
   vendingQtyA,
   vendingQtyB,
   selectedStation,
+  userLocation,
+  locationState,
+  locationError,
   setVendingQtyA,
   setVendingQtyB,
-  setSelectedStation,
+  onSelectStation,
   refillA,
   refillB,
   adminPin,
@@ -266,7 +412,8 @@ function VendingCard({
   onDispenseAll,
   onRefreshStatus,
   onReset,
-  onRefill
+  onRefill,
+  onDeliveryReceived
 }) {
   const status = device?.latestStatus || {};
   const stockA = getStatusNumber(status.qtyA);
@@ -284,6 +431,7 @@ function VendingCard({
   const progress =
     dispensedCount !== null && totalOrderItems !== null ? `${dispensedCount} / ${totalOrderItems}` : "-";
   const activeOrder = isOrderActive(currentOrder);
+  const robotObstacleDanger = getRobotSafety(robot).danger;
   const commandBlocked = Boolean(loadingAction) || isInitialLoading || !mqttConnected;
   const vendingBusy = Boolean(
     device?.busy ||
@@ -298,11 +446,15 @@ function VendingCard({
     activeOrder ||
     !device?.online ||
     !robot?.online ||
+    robotObstacleDanger ||
     !selectedStation ||
     vendingQtyA + vendingQtyB <= 0;
   const refillAmountA = getNonNegativeNumber(refillA);
   const refillAmountB = getNonNegativeNumber(refillB);
   const disableRefill = disableAll || !adminPin || refillAmountA + refillAmountB <= 0;
+  const canReceiveDelivery =
+    Boolean(device?.online) &&
+    currentOrder?.status === "awaiting_delivery_receipt";
 
   function changeQtyA(delta) {
     setVendingQtyA((quantity) => clampQuantity(quantity + delta, stockA));
@@ -433,13 +585,20 @@ function VendingCard({
                 key={station.value}
                 type="button"
                 className={selectedStation === station.value ? "selected" : ""}
-                onClick={() => setSelectedStation(station.value)}
+                onClick={() => onSelectStation(station.value)}
                 disabled={disableAll}
               >
                 {station.label}
               </button>
             ))}
           </div>
+          <p className={`location-state ${locationState}`}>
+            {locationState === "loading"
+              ? "Reading browser location..."
+              : userLocation
+                ? `Location ready: ${userLocation.latitude.toFixed(6)}, ${userLocation.longitude.toFixed(6)}`
+                : locationError || "Select a station to capture browser location"}
+          </p>
         </div>
       </div>
 
@@ -483,6 +642,22 @@ function VendingCard({
           {loadingAction === "vending_001:reset" ? "Resetting..." : "Reset Vending Machine"}
         </button>
       </div>
+
+      {canReceiveDelivery ? (
+        <button
+          type="button"
+          className={`success-button full-width-action ${
+            loadingAction === "order:delivery-received" ? "is-loading" : ""
+          }`}
+          onClick={onDeliveryReceived}
+          disabled={Boolean(loadingAction)}
+          aria-busy={loadingAction === "order:delivery-received"}
+        >
+          {loadingAction === "order:delivery-received"
+            ? "Confirming..."
+            : "Delivery Received"}
+        </button>
+      ) : null}
 
       <div className="refill-panel">
         <h3>Refill Stock</h3>
@@ -549,7 +724,7 @@ function AckValue({ value }) {
   return <strong>{value ? formatStatusLabel(value.status || "received") : "--"}</strong>;
 }
 
-function OrderProgressCard({ order }) {
+function OrderProgressCard({ order, robot }) {
   if (!order) {
     return (
       <section className="card order-card">
@@ -563,6 +738,10 @@ function OrderProgressCard({ order }) {
     );
   }
 
+  const cart = robot?.latestStatus?.cart || {};
+  const expectedProducts =
+    getNonNegativeNumber(order.products?.a) + getNonNegativeNumber(order.products?.b);
+
   return (
     <section className="card order-card">
       <div className="card-header">
@@ -570,7 +749,15 @@ function OrderProgressCard({ order }) {
           <h2>Order Progress</h2>
           <p>{order.orderId}</p>
         </div>
-        <span className={`status-pill ${order.status === "failed" ? "offline" : "online"}`}>
+        <span
+          className={`status-pill ${
+            order.status === "failed"
+              ? "offline"
+              : order.status === "blocked_by_obstacle"
+                ? "warning-status"
+                : "online"
+          }`}
+        >
           {formatOrderStatus(order.status)}
         </span>
       </div>
@@ -595,6 +782,32 @@ function OrderProgressCard({ order }) {
         <div>
           <span>Robot delivery ack</span>
           <AckValue value={order.robotDeliveryAck} />
+        </div>
+        <div>
+          <span>Expected products</span>
+          <strong>{expectedProducts}</strong>
+        </div>
+        <div>
+          <span>Detected products</span>
+          <strong>{cart.productCount ?? "--"}</strong>
+        </div>
+        <div>
+          <span>Detection armed</span>
+          <strong>
+            {cart.productDetectionArmed === undefined
+              ? "--"
+              : getStatusBoolean(cart.productDetectionArmed)
+                ? "Yes"
+                : "No"}
+          </strong>
+        </div>
+        <div>
+          <span>User latitude</span>
+          <strong>{order.userLocation?.latitude ?? "--"}</strong>
+        </div>
+        <div>
+          <span>User longitude</span>
+          <strong>{order.userLocation?.longitude ?? "--"}</strong>
         </div>
       </div>
 
@@ -625,7 +838,15 @@ function App() {
   const [refillB, setRefillB] = useState("");
   const [adminPin, setAdminPin] = useState("");
   const [selectedStation, setSelectedStation] = useState("station_1");
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationState, setLocationState] = useState("idle");
+  const [locationError, setLocationError] = useState("");
   const [currentOrder, setCurrentOrder] = useState(null);
+  const [telemetryOpen, setTelemetryOpen] = useState(false);
+  const [robotTelemetry, setRobotTelemetry] = useState(null);
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [telemetryError, setTelemetryError] = useState("");
+  const activeMovementKeys = useRef(new Set());
 
   const robot = devices.robot_car_001;
   const vending = devices.vending_001;
@@ -698,6 +919,45 @@ function App() {
     return () => window.clearInterval(intervalId);
   }, []);
 
+  useEffect(() => {
+    if (!telemetryOpen) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function refreshTelemetry(showLoading = false) {
+      if (showLoading) {
+        setTelemetryLoading(true);
+      }
+
+      try {
+        const response = await getLatestDeviceTelemetry("robot_car_001");
+
+        if (!cancelled) {
+          setRobotTelemetry(response.telemetry || null);
+          setTelemetryError("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setTelemetryError(error.data?.message || error.message);
+        }
+      } finally {
+        if (!cancelled) {
+          setTelemetryLoading(false);
+        }
+      }
+    }
+
+    refreshTelemetry(true);
+    const intervalId = window.setInterval(refreshTelemetry, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [telemetryOpen]);
+
   async function runAction(actionKey, action) {
     setLoadingAction(actionKey);
     setErrorMessage("");
@@ -721,6 +981,72 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    const manualModeOn = getStatusBoolean(robot?.latestStatus?.manualMode);
+    const robotObstacleDanger = getRobotSafety(robot).danger;
+    const movementByCode = {
+      KeyW: ["forward", { speed: 160, durationMs: 1000 }],
+      ArrowUp: ["forward", { speed: 160, durationMs: 1000 }],
+      KeyS: ["backward", { speed: 160, durationMs: 1000 }],
+      ArrowDown: ["backward", { speed: 160, durationMs: 1000 }],
+      KeyA: ["left", { speed: 140, durationMs: 500 }],
+      ArrowLeft: ["left", { speed: 140, durationMs: 500 }],
+      KeyD: ["right", { speed: 140, durationMs: 500 }],
+      ArrowRight: ["right", { speed: 140, durationMs: 500 }]
+    };
+
+    function isTyping(event) {
+      const tagName = event.target?.tagName;
+      return event.target?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(tagName);
+    }
+
+    function handleKeyDown(event) {
+      if (!manualModeOn || !health?.mqttConnected || isTyping(event) || event.repeat) {
+        return;
+      }
+
+      if (event.code === "Space") {
+        event.preventDefault();
+        runAction("robot:keyboard-stop", () =>
+          sendDeviceCommand("robot_car_001", "stop", {})
+        );
+        return;
+      }
+
+      const movement = movementByCode[event.code];
+
+      if (!movement || robotObstacleDanger || activeMovementKeys.current.has(event.code)) {
+        return;
+      }
+
+      event.preventDefault();
+      activeMovementKeys.current.add(event.code);
+      runAction(`robot:keyboard-${movement[0]}`, () =>
+        sendDeviceCommand("robot_car_001", movement[0], movement[1])
+      );
+    }
+
+    function handleKeyUp(event) {
+      if (!activeMovementKeys.current.has(event.code)) {
+        return;
+      }
+
+      event.preventDefault();
+      activeMovementKeys.current.delete(event.code);
+      runAction("robot:keyboard-stop", () =>
+        sendDeviceCommand("robot_car_001", "stop", {})
+      );
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [health?.mqttConnected, robot?.latestStatus?.manualMode, robot?.latestStatus?.ultrasonic]);
+
   function handleCommand(deviceId, command, params, actionKey) {
     runAction(actionKey, () => sendDeviceCommand(deviceId, command, params));
   }
@@ -729,9 +1055,37 @@ function App() {
     runAction("vending_001:ping", () => sendDeviceCommand("vending_001", "ping", {}));
   }
 
+  async function captureUserLocation() {
+    setLocationState("loading");
+    setLocationError("");
+
+    try {
+      const location = await getBrowserLocation();
+      setUserLocation(location);
+      setLocationState("ready");
+      return location;
+    } catch (error) {
+      setUserLocation(null);
+      setLocationState("error");
+      setLocationError(`${error.message}. Fixed-station demo can still run.`);
+      return null;
+    }
+  }
+
+  function handleStationSelect(station) {
+    setSelectedStation(station);
+    captureUserLocation();
+  }
+
   async function handleVendingDispenseAll() {
+    const orderLocation = userLocation || (await captureUserLocation());
     const response = await runAction("order:dispense-and-deliver", () =>
-      runDispenseAndDeliverOrder(vendingQtyA, vendingQtyB, selectedStation)
+      runDispenseAndDeliverOrder(
+        vendingQtyA,
+        vendingQtyB,
+        selectedStation,
+        orderLocation
+      )
     );
 
     if (response?.success) {
@@ -773,6 +1127,43 @@ function App() {
 
   function handleDeliveryReceived() {
     runAction("order:delivery-received", markCurrentOrderDeliveryReceived);
+  }
+
+  function handleSimulateOrderCompleted() {
+    const orderId = currentOrder?.orderId || `ORD_SIM_${Date.now()}`;
+    const targetStation = currentOrder?.targetStation || selectedStation;
+
+    runAction("robot:simulate-order-completed", () => {
+      if (currentOrder?.orderId) {
+        return simulateOrderVendingCompleted(currentOrder.orderId);
+      }
+
+      return sendDeviceCommand("robot_car_001", "simulate_order_completed", {
+        orderId,
+        targetStation,
+        userLocation
+      });
+    });
+  }
+
+  async function handleToggleTelemetry() {
+    if (telemetryOpen) {
+      await runAction("robot:telemetry-stop", () =>
+        stopDeviceTelemetry("robot_car_001")
+      );
+      setTelemetryOpen(false);
+      return;
+    }
+
+    const response = await runAction("robot:telemetry-start", () =>
+      startDeviceTelemetry("robot_car_001")
+    );
+
+    if (response?.success) {
+      setRobotTelemetry(null);
+      setTelemetryError("");
+      setTelemetryOpen(true);
+    }
   }
 
   function handleRefreshNow() {
@@ -887,6 +1278,9 @@ function App() {
           isInitialLoading={isInitialLoading}
           currentOrder={currentOrder}
           onDeliveryReceived={handleDeliveryReceived}
+          onToggleTelemetry={handleToggleTelemetry}
+          telemetryOpen={telemetryOpen}
+          onSimulateOrderCompleted={handleSimulateOrderCompleted}
         />
 
         <VendingCard
@@ -897,9 +1291,12 @@ function App() {
           vendingQtyA={vendingQtyA}
           vendingQtyB={vendingQtyB}
           selectedStation={selectedStation}
+          userLocation={userLocation}
+          locationState={locationState}
+          locationError={locationError}
           setVendingQtyA={setVendingQtyA}
           setVendingQtyB={setVendingQtyB}
-          setSelectedStation={setSelectedStation}
+          onSelectStation={handleStationSelect}
           refillA={refillA}
           refillB={refillB}
           adminPin={adminPin}
@@ -913,10 +1310,11 @@ function App() {
           onRefreshStatus={handleVendingRefreshStatus}
           onReset={handleVendingReset}
           onRefill={handleVendingRefill}
+          onDeliveryReceived={handleDeliveryReceived}
         />
       </div>
 
-      <OrderProgressCard order={currentOrder} />
+      <OrderProgressCard order={currentOrder} robot={robot} />
 
       <section className="card flow-card">
         <div>
@@ -946,6 +1344,16 @@ function App() {
         </div>
         <pre>{formatJson(latestResponse)}</pre>
       </section>
+
+      {telemetryOpen ? (
+        <TelemetryPanel
+          telemetry={robotTelemetry}
+          isLoading={telemetryLoading}
+          error={telemetryError}
+          onClose={handleToggleTelemetry}
+          isStopping={loadingAction === "robot:telemetry-stop"}
+        />
+      ) : null}
     </main>
   );
 }

@@ -1,5 +1,5 @@
-const { getAllOrders, getOrder, addTimeline, nowIso, setOrderStatus } = require("./orderStore");
-const { sendRobotDeliveryForOrder } = require("./orderFlowService");
+const { getAllOrders, getOrder, addTimeline, createOrder, nowIso, setOrderStatus } = require("./orderStore");
+const { handleRobotPickupCompletion } = require("./robotPickupService");
 
 function findOrderByVendingPayload(payload) {
   const orderId = payload.orderId || payload.activeOrderId;
@@ -35,6 +35,35 @@ function findOrderByRobotPayload(payload) {
   return null;
 }
 
+function getRobotPayloadValue(payload) {
+  return String(payload.event || payload.robotMode || payload.status || payload.type || "").toLowerCase();
+}
+
+function getRobotReportedQuantity(payload) {
+  const counts = [payload.cart?.expectedProductCount, payload.cart?.productCount].map(Number);
+  return counts.find((count) => Number.isFinite(count) && count > 0) || 0;
+}
+
+function getOrCreateRobotOrder(payload, value) {
+  const existingOrder = findOrderByRobotPayload(payload);
+
+  if (existingOrder || !payload.orderId || !["delivery_completed", "completed"].includes(value)) {
+    return existingOrder;
+  }
+
+  const targetStation = payload.targetStation || "station_3";
+  const quantity = getRobotReportedQuantity(payload);
+  const order = createOrder({
+    orderId: payload.orderId,
+    targetStation,
+    a: quantity,
+    b: 0
+  });
+
+  addTimeline(order, "info", "Order restored from robot completion status", payload);
+  return order;
+}
+
 function updateOrderFromVendingStatus(payload) {
   const order = findOrderByVendingPayload(payload);
 
@@ -52,7 +81,6 @@ function updateOrderFromVendingStatus(payload) {
     setOrderStatus(order, "vending_progress", "Vending progress", payload);
   } else if (status === "completed") {
     setOrderStatus(order, "vending_completed", "Vending completed", payload);
-    sendRobotDeliveryForOrder(order.orderId);
   } else if (status === "failed") {
     setOrderStatus(order, "failed", "Vending failed", payload);
   }
@@ -78,7 +106,6 @@ function updateOrderFromVendingEvent(payload) {
   } else if (event === "order_completed") {
     order.status = "vending_completed";
     order.updatedAt = nowIso();
-    sendRobotDeliveryForOrder(order.orderId);
   } else if (event === "order_failed") {
     order.status = "failed";
     order.updatedAt = nowIso();
@@ -86,23 +113,25 @@ function updateOrderFromVendingEvent(payload) {
 }
 
 function updateOrderFromRobotPayload(payload) {
-  const order = findOrderByRobotPayload(payload);
+  const value = getRobotPayloadValue(payload);
+  const order = getOrCreateRobotOrder(payload, value);
 
   if (!order) {
     return;
   }
 
-  const value = String(payload.event || payload.status || "").toLowerCase();
   addTimeline(order, value === "failed" || value === "error" ? "failed" : "info", "Robot update", payload);
 
-  if (["robot_ready_for_pickup", "ready_for_pickup"].includes(value)) {
+  if (handleRobotPickupCompletion(order, payload, value)) {
+    // Pickup handler starts delivery after validating any reported cart count.
+  } else if (["robot_ready_for_pickup", "ready_for_pickup"].includes(value)) {
     order.status = "robot_ready";
   } else if (value === "delivery_started") {
     order.status = "robot_delivering";
   } else if (value === "station_reached") {
     order.status = "station_reached";
   } else if (["delivery_completed", "completed"].includes(value)) {
-    order.status = "completed";
+    order.status = "awaiting_delivery_receipt";
   } else if (["failed", "error"].includes(value)) {
     order.status = "failed";
   }

@@ -49,7 +49,7 @@ function publishCommandAndWaitForAck(deviceId, payload) {
       return;
     }
 
-    if (hasPendingCommandForDevice(deviceId)) {
+    if (hasPendingCommandForDevice(deviceId) && payload.command !== "stop") {
       reject(createHttpError(409, "Device already has a pending command"));
       return;
     }
@@ -118,6 +118,7 @@ function publishCommandAndWaitForAck(deviceId, payload) {
 
 module.exports = {
   buildCommandPayload,
+  hasPendingCommandForDevice,
   publishCommandAndWaitForAck,
   rejectAllPendingCommands,
   resolvePendingCommand,

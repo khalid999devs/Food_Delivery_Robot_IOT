@@ -6,6 +6,7 @@ const {
   updateOrderFromVendingEvent,
   updateOrderFromVendingStatus
 } = require("./orderMqttHandlers");
+const { updateOrderFromRobotSafetyPayload } = require("./robotSafetyHandler");
 
 function parseJsonMessage(message) {
   const raw = message.toString();
@@ -101,7 +102,9 @@ function handleStatusMessage(topic, message) {
   }
 
   if (deviceId === "robot_car_001") {
-    updateOrderFromRobotPayload(payload);
+    if (!updateOrderFromRobotSafetyPayload(payload)) {
+      updateOrderFromRobotPayload(payload);
+    }
   }
 }
 
@@ -135,7 +138,9 @@ function handleEventMessage(topic, message) {
   }
 
   if (deviceId === "robot_car_001") {
-    updateOrderFromRobotPayload(payload);
+    if (!updateOrderFromRobotSafetyPayload(payload)) {
+      updateOrderFromRobotPayload(payload);
+    }
   }
 }
 

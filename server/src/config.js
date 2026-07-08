@@ -35,6 +35,9 @@ const config = {
   commandTimeoutMs: readNumber("COMMAND_TIMEOUT_MS", 5000),
   requestJsonLimit: readEnv("REQUEST_JSON_LIMIT", "64kb"),
   startupDeviceCheckDelayMs: readNumber("STARTUP_DEVICE_CHECK_DELAY_MS", 1200),
+  devicePingIntervalMs: readNumber("DEVICE_PING_INTERVAL_MS", 10000),
+  deviceOfflineTimeoutMs: readNumber("DEVICE_OFFLINE_TIMEOUT_MS", 25000),
+  deviceHealthSweepMs: readNumber("DEVICE_HEALTH_SWEEP_MS", 3000),
   logLevel: readEnv("LOG_LEVEL", nodeEnv === "production" ? "off" : "info")
 };
 
