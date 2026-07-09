@@ -71,10 +71,10 @@ async function sendDeliveryReceivedResponse(req, res, order) {
   const allAcknowledged = result.notifications?.allAcknowledged !== false;
 
   return res.json({
-    success: allAcknowledged,
+    success: true,
     message: allAcknowledged
       ? "Delivery received. Robot and vending were notified."
-      : "Delivery received, but one device did not acknowledge the notification.",
+      : "Delivery received. Device notifications were sent best-effort.",
     order: result.order,
     notifications: result.notifications
   });

@@ -81,6 +81,8 @@ FRONTEND_ORIGIN=http://localhost:5173,https://your-app.vercel.app
 - `GET /api/orders/current`
 - `GET /api/orders/:orderId`
 - `POST /api/orders/:orderId/cancel`
+- `POST /api/orders/current/force-reset`
+- `POST /api/orders/:orderId/confirm-loaded`
 - `POST /api/orders/current/delivery-received`
 - `POST /api/orders/:orderId/delivery-received`
 
@@ -169,6 +171,14 @@ Start the real dispense and delivery flow:
 
 The backend first commands `robot_car_001` with `prepare_for_pickup`, including
 `expectedProducts` and the optional browser location, then sends vending `dispense`.
-Vending completion updates the order, but only robot `product_loaded` starts the real
-`start_delivery` path. The delivery command ID prevents duplicate starts. The simulation
-endpoint remains available as an explicit demo bypass.
+Vending completion or website confirmation sends `delivery_loaded`. A timeout retries
+once using a new command ID. After `product_loaded` or `success` acknowledgement, backend
+sends `start_delivery` with the same complete order details. Obstacle responses stop the
+chain. As an additional real-flow fallback, a robot `product_detected` event whose
+`cart.productCount` reaches `a + b` starts the same load-confirmation chain. The simulation
+endpoint remains a separate explicit demo bypass.
+
+The admin force-reset endpoint immediately closes the active in-memory order, ignores
+later MQTT messages for that reset order, and attempts `cancel_delivery` on the robot
+plus `reset` on vending. Device cleanup is best-effort, so backend recovery still works
+when one device is offline.

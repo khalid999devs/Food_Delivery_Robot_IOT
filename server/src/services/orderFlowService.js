@@ -3,12 +3,19 @@ const {
   publishCommandAndWaitForAck
 } = require("./commandService");
 const { createOrder, getOrder, setOrderStatus } = require("./orderStore");
+const {
+  handleVendingCompletion,
+  isVendingCompletion
+} = require("./vendingCompletionService");
 function isSuccessfulRobotAck(ack) {
   return ["success", "ready_for_pickup", "ready"].includes(String(ack?.status || "").toLowerCase());
 }
 
 function isSuccessfulVendingAck(ack) {
-  return ["accepted", "success", "ready"].includes(String(ack?.status || "").toLowerCase());
+  return (
+    ["accepted", "success", "ready"].includes(String(ack?.status || "").toLowerCase()) ||
+    isVendingCompletion(ack || {})
+  );
 }
 
 function routeResponse(statusCode, body) {
@@ -78,7 +85,9 @@ async function startDispenseAndDeliver({ a, b, targetStation, userLocation }) {
         });
     }
 
-    setOrderStatus(order, "vending_accepted", "Vending accepted order", vendingAck);
+    if (!handleVendingCompletion(order, vendingAck, "vending_ack")) {
+      setOrderStatus(order, "vending_accepted", "Vending accepted order", vendingAck);
+    }
 
     return routeResponse(200, {
         success: true,

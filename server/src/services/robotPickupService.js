@@ -1,4 +1,5 @@
 const { addTimeline } = require("./orderStore");
+const { confirmOrderLoaded } = require("./deliveryLoadedService");
 const { sendRobotDeliveryForOrder } = require("./robotDeliveryService");
 
 const pickupCompleteValues = new Set([
@@ -19,6 +20,48 @@ function getDetectedProductCount(payload) {
   return count === undefined ? null : count;
 }
 
+function handleRobotProductDetection(order, payload, value) {
+  const payloadValues = [
+    value,
+    payload.event,
+    payload.status,
+    payload.type
+  ].map((item) => String(item || "").toLowerCase());
+
+  if (!payloadValues.includes("product_detected")) {
+    return false;
+  }
+
+  const expectedProducts = Math.max(
+    1,
+    Number(order.products?.a || 0) + Number(order.products?.b || 0)
+  );
+  const detectedProducts = getDetectedProductCount(payload);
+  order.detectedProductCount = Math.max(
+    Number(order.detectedProductCount || 0),
+    detectedProducts === null ? 1 : detectedProducts
+  );
+  addTimeline(order, "info", "Robot detected a product in the cart", {
+    expectedProducts,
+    detectedProducts: order.detectedProductCount
+  });
+
+  if (
+    (order.vendingCompletionReceived ||
+      order.detectedProductCount >= expectedProducts) &&
+    !order.deliveryLoadedCommandId &&
+    !order.robotDeliveryCommandId
+  ) {
+    confirmOrderLoaded(order.orderId, "robot_product_count").catch((error) => {
+      addTimeline(order, "failed", "Automatic robot load confirmation failed", {
+        message: error.message
+      });
+    });
+  }
+
+  return true;
+}
+
 function handleRobotPickupCompletion(order, payload, value) {
   const completionValue = [
     value,
@@ -34,18 +77,27 @@ function handleRobotPickupCompletion(order, payload, value) {
     return false;
   }
 
+  const isBackendLoadAck =
+    payload.command === "delivery_loaded" ||
+    order.deliveryLoadedCommandIds?.includes(payload.commandId);
+
+  if (isBackendLoadAck) {
+    addTimeline(order, "info", "Robot load-confirmation acknowledgement received", payload);
+    return true;
+  }
+
   const expectedProducts =
     Number(order.products?.a || 0) + Number(order.products?.b || 0);
   const detectedProducts = getDetectedProductCount(payload);
+  order.detectedProductCount = Math.max(
+    Number(order.detectedProductCount || 0),
+    detectedProducts || 0
+  );
 
-  if (
-    detectedProducts !== null &&
-    expectedProducts > 0 &&
-    detectedProducts < expectedProducts
-  ) {
-    addTimeline(order, "warning", "Robot reported loaded before expected count", {
+  if (order.detectedProductCount < 1) {
+    addTimeline(order, "warning", "Robot reported loaded without an IR product detection", {
       expectedProducts,
-      detectedProducts
+      detectedProducts: order.detectedProductCount
     });
     return true;
   }
@@ -53,7 +105,7 @@ function handleRobotPickupCompletion(order, payload, value) {
   addTimeline(order, "success", "Robot confirmed all expected products loaded", {
     completionValue,
     expectedProducts,
-    detectedProducts
+    detectedProducts: order.detectedProductCount
   });
   sendRobotDeliveryForOrder(order.orderId);
   return true;
@@ -61,6 +113,7 @@ function handleRobotPickupCompletion(order, payload, value) {
 
 module.exports = {
   getDetectedProductCount,
+  handleRobotProductDetection,
   handleRobotPickupCompletion,
   pickupCompleteValues
 };

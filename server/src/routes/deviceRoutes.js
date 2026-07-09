@@ -11,6 +11,10 @@ const {
   buildCommandPayload,
   publishCommandAndWaitForAck
 } = require("../services/commandService");
+const {
+  ensureRobotAutonomousMode,
+  isAutonomousCommand
+} = require("../services/robotAutonomyService");
 
 const router = express.Router();
 
@@ -70,6 +74,10 @@ router.post("/:deviceId/command", async (req, res) => {
   const commandPayload = buildCommandPayload(deviceId, command, commandParams);
 
   try {
+    if (isAutonomousCommand(deviceId, command)) {
+      await ensureRobotAutonomousMode(command);
+    }
+
     const ack = await publishCommandAndWaitForAck(deviceId, commandPayload);
 
     return res.json({

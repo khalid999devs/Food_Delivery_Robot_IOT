@@ -1,4 +1,4 @@
-const { getOrder, setOrderStatus } = require("./orderStore");
+const { addTimeline, getOrder, setOrderStatus } = require("./orderStore");
 const { buildCommandPayload, publishCommandAndWaitForAck } = require("./commandService");
 
 const deliveryReceiptDevices = ["robot_car_001", "vending_001"];
@@ -58,23 +58,23 @@ async function markDeliveryReceived(orderId) {
   }
 
   setOrderStatus(order, "delivery_received", "Delivery received by customer");
+  const completionTimer = setTimeout(() => {
+    if (order.status === "delivery_received") {
+      setOrderStatus(order, "completed", "Order completed. System ready for next order");
+    }
+  }, 5000);
+  completionTimer.unref();
+
   const notifications = await publishDeliveryReceived(order);
   order.deliveryReceivedNotifications = notifications;
-
-  setOrderStatus(
+  addTimeline(
     order,
-    "delivery_received",
+    notifications.allAcknowledged ? "success" : "warning",
     notifications.allAcknowledged
       ? "Delivery receipt acknowledged by robot and vending"
       : "Delivery receipt sent with a device acknowledgement issue",
     notifications
   );
-
-  setTimeout(() => {
-    if (order.status === "delivery_received") {
-      setOrderStatus(order, "completed", "Order completed. System ready for next order");
-    }
-  }, 5000);
 
   return {
     order,

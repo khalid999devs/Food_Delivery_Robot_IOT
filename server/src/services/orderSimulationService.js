@@ -4,6 +4,7 @@ const {
 } = require("./commandService");
 const { applyRobotDeliveryAck, getAckStatus } = require("./robotDeliveryService");
 const { addTimeline, getOrder, setOrderStatus } = require("./orderStore");
+const { ensureRobotAutonomousMode } = require("./robotAutonomyService");
 
 async function simulateVendingCompleted(orderId) {
   const order = getOrder(orderId);
@@ -12,16 +13,18 @@ async function simulateVendingCompleted(orderId) {
     return null;
   }
 
-  const payload = buildCommandPayload("robot_car_001", "simulate_order_completed", {
-    orderId,
-    targetStation: order.targetStation,
-    userLocation: order.userLocation
-  });
-
-  order.robotDeliveryCommandId = payload.commandId;
-  addTimeline(order, "info", "Vending completion simulation sent to robot", payload);
+  let payload = null;
 
   try {
+    const autonomy = await ensureRobotAutonomousMode("simulate_order_completed");
+    addTimeline(order, "info", "Robot manual mode disabled before simulation", autonomy);
+    payload = buildCommandPayload("robot_car_001", "simulate_order_completed", {
+      orderId,
+      targetStation: order.targetStation,
+      userLocation: order.userLocation
+    });
+    order.robotDeliveryCommandId = payload.commandId;
+    addTimeline(order, "info", "Vending completion simulation sent to robot", payload);
     const ack = await publishCommandAndWaitForAck("robot_car_001", payload);
     const status = getAckStatus(ack);
     const accepted = applyRobotDeliveryAck(order, ack, "Simulated completion started robot delivery");
