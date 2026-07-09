@@ -107,6 +107,27 @@ export function markCurrentOrderDeliveryReceived() {
   });
 }
 
+export function forceResetCurrentOrder() {
+  return request("/api/orders/current/force-reset", {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export function confirmOrderLoaded(orderId) {
+  return request(`/api/orders/${orderId}/confirm-loaded`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export function forceOrderProgress(orderId, step) {
+  return request(`/api/orders/${orderId}/demo-progress`, {
+    method: "POST",
+    body: JSON.stringify({ step })
+  });
+}
+
 export function simulateOrderVendingCompleted(orderId) {
   return request(`/api/orders/${orderId}/simulate-vending-completed`, {
     method: "POST",

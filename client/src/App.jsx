@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   API_BASE_URL,
+  confirmOrderLoaded,
+  forceResetCurrentOrder,
   getCurrentOrder,
   getDevices,
   getHealth,
@@ -14,7 +16,12 @@ import {
   startDeviceTelemetry,
   stopDeviceTelemetry
 } from "./api.js";
+import AdminLogin from "./AdminLogin.jsx";
+import ConsumerStorefront from "./ConsumerStorefront.jsx";
 import TelemetryPanel from "./TelemetryPanel.jsx";
+
+const ADMIN_SESSION_KEY = "robot-vending-demo-admin";
+const ADMIN_MAX_QUANTITY = 3;
 
 const robotCommands = [
   { label: "Ping", command: "ping", params: {} },
@@ -45,6 +52,8 @@ const activeOrderStatuses = new Set([
   "vending_dispensing",
   "vending_progress",
   "vending_completed",
+  "robot_load_confirmation_sent",
+  "robot_loaded",
   "robot_delivery_sent",
   "robot_delivering",
   "blocked_by_obstacle",
@@ -62,6 +71,8 @@ const orderStatusLabels = {
   vending_dispensing: "Vending dispensing",
   vending_progress: "Product detected / dispensing progress",
   vending_completed: "Vending completed",
+  robot_load_confirmation_sent: "Confirming robot load",
+  robot_loaded: "Products loaded",
   robot_delivery_sent: "Robot delivery command sent",
   robot_delivering: "Robot delivering to station",
   blocked_by_obstacle: "Blocked by obstacle",
@@ -85,12 +96,10 @@ function getStatusNumber(value) {
   return Number.isFinite(numberValue) ? numberValue : null;
 }
 
-function clampQuantity(value, stock) {
+function clampQuantity(value) {
   const numericValue = Number(value);
   const safeValue = Number.isFinite(numericValue) ? Math.floor(numericValue) : 0;
-  const nonNegativeValue = Math.max(0, safeValue);
-
-  return stock === null ? nonNegativeValue : Math.min(nonNegativeValue, stock);
+  return Math.min(ADMIN_MAX_QUANTITY, Math.max(0, safeValue));
 }
 
 function getStatusBoolean(value) {
@@ -186,7 +195,8 @@ function DeviceCard({
   onDeliveryReceived,
   onToggleTelemetry,
   telemetryOpen,
-  onSimulateOrderCompleted
+  onSimulateOrderCompleted,
+  onConfirmOrderLoaded
 }) {
   const canReceiveDelivery =
     deviceId === "robot_car_001" &&
@@ -199,7 +209,12 @@ function DeviceCard({
     danger: ultrasonicDanger
   } = getRobotSafety(device);
   const simulationLoading = loadingAction === "robot:simulate-order-completed";
+  const loadConfirmationLoading = loadingAction === "order:confirm-loaded";
   const manualModeOn = getStatusBoolean(device?.latestStatus?.manualMode);
+  const canConfirmLoaded =
+    deviceId === "robot_car_001" &&
+    isOrderActive(currentOrder) &&
+    !currentOrder?.robotDeliveryCommandId;
 
   return (
     <section className="card device-card">
@@ -320,6 +335,21 @@ function DeviceCard({
 
       {deviceId === "robot_car_001" ? (
         <>
+          {canConfirmLoaded ? (
+            <button
+              type="button"
+              className={`success-button full-width-action ${
+                loadConfirmationLoading ? "is-loading" : ""
+              }`}
+              onClick={onConfirmOrderLoaded}
+              disabled={commandsDisabled || !device?.online || ultrasonicDanger}
+              aria-busy={loadConfirmationLoading}
+            >
+              {loadConfirmationLoading
+                ? "Confirming Load..."
+                : "Confirm Products Loaded / Start Delivery"}
+            </button>
+          ) : null}
           <button
             type="button"
             className={`simulation-button full-width-action ${
@@ -413,7 +443,8 @@ function VendingCard({
   onRefreshStatus,
   onReset,
   onRefill,
-  onDeliveryReceived
+  onDeliveryReceived,
+  onForceResetOrder
 }) {
   const status = device?.latestStatus || {};
   const stockA = getStatusNumber(status.qtyA);
@@ -421,10 +452,7 @@ function VendingCard({
   const queueLength = getStatusNumber(status.queueLength);
   const dispensedCount = getStatusNumber(status.dispensedCount);
   const totalOrderItems = getStatusNumber(status.totalOrderItems);
-  const dispensing = getStatusBoolean(status.dispensing);
-  const stateValue = String(status.status || "").toLowerCase();
   const stateLabel = formatStatusLabel(status.status);
-  const busyStates = ["accepted", "dispensing", "progress"];
   const currentProduct = status.currentProduct || "--";
   const activeOrderId = status.activeOrderId || "--";
   const statusMessage = status.message || "--";
@@ -433,19 +461,11 @@ function VendingCard({
   const activeOrder = isOrderActive(currentOrder);
   const robotObstacleDanger = getRobotSafety(robot).danger;
   const commandBlocked = Boolean(loadingAction) || isInitialLoading || !mqttConnected;
-  const vendingBusy = Boolean(
-    device?.busy ||
-      dispensing ||
-      (queueLength !== null && queueLength > 0) ||
-      busyStates.includes(stateValue)
-  );
   const disableAll = commandBlocked;
+  const selectionDisabled = Boolean(loadingAction) || isInitialLoading;
   const disableDispense =
     disableAll ||
-    vendingBusy ||
     activeOrder ||
-    !device?.online ||
-    !robot?.online ||
     robotObstacleDanger ||
     !selectedStation ||
     vendingQtyA + vendingQtyB <= 0;
@@ -455,13 +475,14 @@ function VendingCard({
   const canReceiveDelivery =
     Boolean(device?.online) &&
     currentOrder?.status === "awaiting_delivery_receipt";
+  const canForceReset = Boolean(activeOrder);
 
   function changeQtyA(delta) {
-    setVendingQtyA((quantity) => clampQuantity(quantity + delta, stockA));
+    setVendingQtyA((quantity) => clampQuantity(quantity + delta));
   }
 
   function changeQtyB(delta) {
-    setVendingQtyB((quantity) => clampQuantity(quantity + delta, stockB));
+    setVendingQtyB((quantity) => clampQuantity(quantity + delta));
   }
 
   return (
@@ -542,7 +563,7 @@ function VendingCard({
             <button
               type="button"
               onClick={() => changeQtyA(-1)}
-              disabled={disableAll || vendingQtyA <= 0}
+              disabled={selectionDisabled || vendingQtyA <= 0}
             >
               -
             </button>
@@ -550,7 +571,7 @@ function VendingCard({
             <button
               type="button"
               onClick={() => changeQtyA(1)}
-              disabled={disableAll || (stockA !== null && vendingQtyA >= stockA)}
+              disabled={selectionDisabled || vendingQtyA >= ADMIN_MAX_QUANTITY}
             >
               +
             </button>
@@ -562,7 +583,7 @@ function VendingCard({
             <button
               type="button"
               onClick={() => changeQtyB(-1)}
-              disabled={disableAll || vendingQtyB <= 0}
+              disabled={selectionDisabled || vendingQtyB <= 0}
             >
               -
             </button>
@@ -570,7 +591,7 @@ function VendingCard({
             <button
               type="button"
               onClick={() => changeQtyB(1)}
-              disabled={disableAll || (stockB !== null && vendingQtyB >= stockB)}
+              disabled={selectionDisabled || vendingQtyB >= ADMIN_MAX_QUANTITY}
             >
               +
             </button>
@@ -586,7 +607,7 @@ function VendingCard({
                 type="button"
                 className={selectedStation === station.value ? "selected" : ""}
                 onClick={() => onSelectStation(station.value)}
-                disabled={disableAll}
+                disabled={selectionDisabled}
               >
                 {station.label}
               </button>
@@ -656,6 +677,22 @@ function VendingCard({
           {loadingAction === "order:delivery-received"
             ? "Confirming..."
             : "Delivery Received"}
+        </button>
+      ) : null}
+
+      {canForceReset ? (
+        <button
+          type="button"
+          className={`danger-button full-width-action ${
+            loadingAction === "order:force-reset" ? "is-loading" : ""
+          }`}
+          onClick={onForceResetOrder}
+          disabled={Boolean(loadingAction)}
+          aria-busy={loadingAction === "order:force-reset"}
+        >
+          {loadingAction === "order:force-reset"
+            ? "Resetting Order..."
+            : "Force Reset Current Order"}
         </button>
       ) : null}
 
@@ -780,6 +817,10 @@ function OrderProgressCard({ order, robot }) {
           <AckValue value={order.vendingAck} />
         </div>
         <div>
+          <span>Robot load ack</span>
+          <AckValue value={order.deliveryLoadedAck} />
+        </div>
+        <div>
           <span>Robot delivery ack</span>
           <AckValue value={order.robotDeliveryAck} />
         </div>
@@ -823,7 +864,7 @@ function OrderProgressCard({ order, robot }) {
   );
 }
 
-function App() {
+function AdminDashboard({ onConsumer, onLogout }) {
   const [health, setHealth] = useState(null);
   const [devices, setDevices] = useState({});
   const [loadingAction, setLoadingAction] = useState("");
@@ -850,8 +891,6 @@ function App() {
 
   const robot = devices.robot_car_001;
   const vending = devices.vending_001;
-  const vendingStockA = getStatusNumber(vending?.latestStatus?.qtyA);
-  const vendingStockB = getStatusNumber(vending?.latestStatus?.qtyB);
 
   const healthLabel = useMemo(() => {
     if (!health) {
@@ -860,14 +899,6 @@ function App() {
 
     return health.mqttConnected ? "Connected" : "Disconnected";
   }, [health]);
-
-  useEffect(() => {
-    setVendingQtyA((quantity) => clampQuantity(quantity, vendingStockA));
-  }, [vendingStockA]);
-
-  useEffect(() => {
-    setVendingQtyB((quantity) => clampQuantity(quantity, vendingStockB));
-  }, [vendingStockB]);
 
   async function refreshState({ showLoading = false } = {}) {
     if (showLoading) {
@@ -1129,12 +1160,35 @@ function App() {
     runAction("order:delivery-received", markCurrentOrderDeliveryReceived);
   }
 
+  function handleConfirmOrderLoaded() {
+    if (!currentOrder?.orderId) {
+      return;
+    }
+
+    runAction("order:confirm-loaded", () =>
+      confirmOrderLoaded(currentOrder.orderId)
+    );
+  }
+
+  function handleForceResetOrder() {
+    const confirmed = window.confirm(
+      "Force reset the current order and attempt to stop/reset both devices?"
+    );
+
+    if (confirmed) {
+      runAction("order:force-reset", forceResetCurrentOrder);
+    }
+  }
+
   function handleSimulateOrderCompleted() {
-    const orderId = currentOrder?.orderId || `ORD_SIM_${Date.now()}`;
-    const targetStation = currentOrder?.targetStation || selectedStation;
+    const activeOrder = isOrderActive(currentOrder);
+    const orderId = activeOrder ? currentOrder.orderId : `ORD_SIM_${Date.now()}`;
+    const targetStation = activeOrder
+      ? currentOrder.targetStation
+      : selectedStation;
 
     runAction("robot:simulate-order-completed", () => {
-      if (currentOrder?.orderId) {
+      if (activeOrder) {
         return simulateOrderVendingCompleted(currentOrder.orderId);
       }
 
@@ -1179,6 +1233,10 @@ function App() {
           <p className="api-target">API: {API_BASE_URL}</p>
         </div>
         <div className="header-status">
+          <div className="admin-header-actions">
+            <button type="button" className="text-button" onClick={onConsumer}>Storefront</button>
+            <button type="button" className="text-button" onClick={onLogout}>Sign out</button>
+          </div>
           <div className={`connection-badge ${health?.mqttConnected ? "online" : "offline"}`}>
             MQTT {healthLabel}
           </div>
@@ -1281,6 +1339,7 @@ function App() {
           onToggleTelemetry={handleToggleTelemetry}
           telemetryOpen={telemetryOpen}
           onSimulateOrderCompleted={handleSimulateOrderCompleted}
+          onConfirmOrderLoaded={handleConfirmOrderLoaded}
         />
 
         <VendingCard
@@ -1311,6 +1370,7 @@ function App() {
           onReset={handleVendingReset}
           onRefill={handleVendingRefill}
           onDeliveryReceived={handleDeliveryReceived}
+          onForceResetOrder={handleForceResetOrder}
         />
       </div>
 
@@ -1356,6 +1416,54 @@ function App() {
       ) : null}
     </main>
   );
+}
+
+function App() {
+  const [view, setView] = useState(() =>
+    window.location.hash === "#admin" ? "admin" : "consumer"
+  );
+  const [adminAuthenticated, setAdminAuthenticated] = useState(
+    () => window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "authenticated"
+  );
+
+  useEffect(() => {
+    function handleHashChange() {
+      setView(window.location.hash === "#admin" ? "admin" : "consumer");
+    }
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  function showConsumer() {
+    window.location.hash = "";
+    setView("consumer");
+  }
+
+  function showAdmin() {
+    window.location.hash = "admin";
+    setView("admin");
+  }
+
+  function loginAdmin() {
+    window.sessionStorage.setItem(ADMIN_SESSION_KEY, "authenticated");
+    setAdminAuthenticated(true);
+  }
+
+  function logoutAdmin() {
+    window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    setAdminAuthenticated(false);
+  }
+
+  if (view === "consumer") {
+    return <ConsumerStorefront onAdmin={showAdmin} />;
+  }
+
+  if (!adminAuthenticated) {
+    return <AdminLogin onLogin={loginAdmin} onBackToStore={showConsumer} />;
+  }
+
+  return <AdminDashboard onConsumer={showConsumer} onLogout={logoutAdmin} />;
 }
 
 export default App;

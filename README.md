@@ -24,12 +24,13 @@ Current focus:
 - backend waits for acknowledgement
 - order flow between robot and vending
 - robot telemetry and ultrasonic safety
+- consumer snack ordering and delivery tracking
+- demo admin login for the technical control panel
 
 Not included yet:
 
 - database
 - authentication UI
-- customer-facing vending UI
 - payment flow
 - production GPS route persistence
 
@@ -362,11 +363,15 @@ Backend flow:
 2. Send `prepare_for_pickup` with the order, station, quantities, expected product count, and user location.
 3. If robot acknowledges, send `dispense` to `vending_001`.
 4. Return after vending acknowledges `accepted`, `success`, or `ready`.
-5. Robot `product_detected` events update the order but do not start movement.
-6. Robot `product_loaded` starts delivery after validating any reported cart count.
-7. Vending completion updates progress but does not bypass cart IR confirmation.
-8. A command ID guard ensures duplicate robot completion events send `start_delivery` only once.
-9. The simulation button remains an explicit demo-only way to start delivery.
+5. Robot `product_detected` events update the order; reaching `a + b` starts the real
+   `delivery_loaded` confirmation chain automatically.
+6. A natural robot `product_loaded` event can start delivery after cart-count validation.
+7. Vending completion or website load confirmation sends `delivery_loaded` to the robot.
+8. `delivery_loaded` includes order quantities, expected count, selected station, and location.
+9. A timeout is retried once with a new command ID.
+10. After `product_loaded` or `success` acknowledgement, backend sends `start_delivery`.
+11. Blocked/obstacle responses stop the chain and mark the order `blocked_by_obstacle`.
+12. The simulation button remains a separate explicit demo-only bypass.
 
 The dashboard supports `station_1` through `station_4`. Selecting a station requests
 browser geolocation; the next order sends those coordinates to the backend. Browser
@@ -378,7 +383,11 @@ Order endpoints:
 - `GET /api/orders`
 - `GET /api/orders/current`
 - `GET /api/orders/:orderId`
+- `POST /api/orders/:orderId/confirm-loaded`
+- `POST /api/orders/:orderId/delivery-received`
 - `POST /api/orders/:orderId/cancel`
+- `POST /api/orders/current/delivery-received`
+- `POST /api/orders/current/force-reset`
 
 ## Important Notes
 
