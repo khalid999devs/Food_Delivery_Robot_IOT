@@ -29,6 +29,13 @@ The project intentionally has no database and no production identity provider.
 Orders and device snapshots are held in backend memory and are cleared whenever
 the backend restarts.
 
+## IOT Devices
+
+| Delivery Robot                                                                  | Vending Machine                                                             |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Receives Packages from the Vending Machine and delivers to desired destination. | Interacts with user and selects desired Food Package.                       |
+| <img src="assets/delivery_robot4.jpeg" alt="Delivery Robot" width="100%">       | <img src="assets/vending_machine1.jpeg" alt="Vending Machine" width="100%"> |
+
 ## Screens
 
 | Customer storefront                                                                           | Admin control panel                                                                       |
