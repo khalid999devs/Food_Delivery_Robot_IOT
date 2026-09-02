@@ -419,7 +419,7 @@ All `/api` requests require `x-api-key` when `API_KEY` is configured.
 
 ## Further Documentation
 
-- [Algorithms and Business Logic](ALGORITHMS_AND_BUSINESS_LOGIC.md)
-- [GPT-Friendly Project Summary](PROJECT_SUMMARY.md)
+- [Algorithms and Business Logic](docs/ALGORITHMS_AND_BUSINESS_LOGIC.md)
+- [Project Summary](docs/PROJECT_SUMMARY.md)
 - [Client Guide](client/README.md)
 - [Server Guide](server/README.md)
