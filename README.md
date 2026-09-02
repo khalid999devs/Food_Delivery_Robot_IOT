@@ -1,4 +1,4 @@
-# SnackRoute Robot Vending IoT System
+# SnackRoute (Food Delivery Robot Vending IoT System)
 
 An end-to-end IoT lab project that coordinates a smart vending machine and an
 ESP32 delivery robot through a reliable MQTT command pipeline. Customers select
