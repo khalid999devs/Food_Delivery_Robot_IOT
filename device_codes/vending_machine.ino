@@ -3,9 +3,8 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
-// =====================================================
+
 // WIFI SETTINGS
-// =====================================================
 
 const char* WIFI_SSID     = "YOUR_WIFI_NAME";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
@@ -22,9 +21,6 @@ const char* MQTT_PASSWORD = "YOUR_MQTT_PASSWORD";
 
 const char* DEVICE_ID = "VM001";
 
-// =====================================================
-// MQTT TOPICS
-// =====================================================
 
 String commandTopic;
 String statusTopic;
@@ -180,10 +176,6 @@ void setup() {
   Serial.println(" SMART IoT VENDING MACHINE");
   Serial.println(" ESP32 + MQTT");
   Serial.println("=================================");
-
-  // ---------------------------------------------------
-  // GPIO CONFIGURATION
-  // ---------------------------------------------------
 
   pinMode(AIN1, OUTPUT);
   pinMode(AIN2, OUTPUT);
