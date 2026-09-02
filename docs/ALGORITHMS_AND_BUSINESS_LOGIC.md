@@ -1,8 +1,6 @@
 # Algorithms and Business Logic
 
-This document describes the runtime logic behind the SnackRoute robot-vending
-system. It is intended for implementation reviews, demonstrations, maintenance,
-and AI-assisted development.
+This document explains the runtime logic of the SnackRoute robot-vending system. It is designed to support implementation reviews, demonstrations, system maintenance, and AI-assisted development.
 
 ## 1. Domain Model
 
@@ -21,7 +19,7 @@ An in-memory order contains:
 orderId
 targetStation
 userLocation
-products { a, b }
+products{a,b}
 status
 detectedProductCount
 vendingCompletionReceived
@@ -34,13 +32,13 @@ timeline[]
 createdAt / updatedAt
 ```
 
-There is no database. The order map is process-local and is reset whenever the
-backend restarts or Render creates a new instance.
+There is no database .The order map is process-local and reset whenever the
+backend is restarted or Render creates a new instance.
 
 ## 2. Business Rules
 
-| Rule | Current behavior |
-| --- | --- |
+| Rule  | Current behavior |
+| ---   | --- |
 | Order quantity | `a >= 0`, `b >= 0`, and `a + b > 0` |
 | Expected products | `max(1, a + b)` |
 | Stations | exactly `station_1` through `station_4` |
@@ -58,6 +56,8 @@ backend restarts or Render creates a new instance.
 | Manual/autonomous handoff | send `manual_off` before autonomous start |
 | Delivery receipt | notify both devices; mark system complete after five seconds |
 | Demo progress override | changes backend order status only; does not move hardware |
+
+
 
 ## 3. Order State Machine
 
@@ -96,13 +96,14 @@ stateDiagram-v2
     failed --> [*]
 ```
 
-The state model is tolerant of asynchronous MQTT updates. Device events can
+The state model is tolerant of asynchronous MQTT updates . Device events can
 advance an order independently from the original REST request.
+
 
 ## 4. Reliable MQTT Command Transfer
 
 The backend generates a unique command ID and stores a pending promise before
-publishing. This ordering prevents a very fast acknowledgement from arriving
+publishing . This ordering prevents a very fast acknowledgement from arriving
 before the pending entry exists.
 
 ```text
@@ -133,9 +134,9 @@ FUNCTION publishCommandAndWaitForAck(deviceId, command, params):
     )
 
     WAIT until:
-        matching status arrives -> resolve with acknowledgement
-        timeout expires         -> reject with HTTP 504
-        broker disconnects      -> reject with HTTP 503
+        matching status arrives  ->  resolve with acknowledgement
+        timeout expires          ->  reject with HTTP 504
+        broker disconnects       ->  reject with HTTP 503
 
     remove pendingCommands[key]
     recompute device.busy
@@ -162,8 +163,10 @@ ON MQTT status(topic, message):
     pass payload to order and safety handlers
 ```
 
-QoS 1 can produce duplicate messages. Command IDs and idempotent state updates
+QoS 1 can produce duplicate messages . Command IDs and idempotent state updates
 keep duplicates from resolving unrelated commands.
+
+
 
 ## 5. Coordinated Dispense-and-Deliver Algorithm
 
@@ -209,13 +212,12 @@ FUNCTION startDispenseAndDeliver(a, b, targetStation, userLocation):
     RETURN order-started response
 ```
 
-The REST response does not need to remain open for the complete physical
-delivery. Later MQTT events continue the order asynchronously.
+The REST response does not need to remain open for the complete physical delivery. Later MQTT events continue the order asynchronously.
 
 ## 6. Cart IR and Load-Confirmation Logic
 
 The real flow must have physical evidence that at least one object reached the
-cart. This prevents a vending-complete message from starting an empty robot.
+cart. This will prevent vending-complete message from starting an empty robot.
 
 ```text
 ON robot product_detected(payload):
@@ -260,6 +262,7 @@ ON vending completed:
 The real "Confirm Products Loaded / Start Delivery" action uses the same policy:
 it is rejected with HTTP 409 when `detectedProductCount < 1`.
 
+
 ## 7. Delivery-Loaded Retry and Start Logic
 
 ```text
@@ -287,11 +290,11 @@ FUNCTION confirmOrderLoaded(order):
         RETURN "Robot load confirmation failed"
 ```
 
-Each retry is a new MQTT command and therefore has a different `commandId`.
+Each retry is a new MQTT command and therefore that has a different `commandId`.
 
 ## 8. Autonomous-Mode Handoff
 
-Manual commands can cancel the Arduino line-following state. Before a real or
+Manual commands can cancel Arduino line-following state . Before a real or
 simulated autonomous start, the backend explicitly returns the robot to
 autonomous ownership.
 
@@ -321,7 +324,7 @@ FUNCTION startRobotDelivery(order):
         order.status = failed
 ```
 
-Unknown acknowledgements fail closed. The backend no longer reports success for
+Unknown acknowledgements fail closed . The backend no longer reports success for
 `delivery_start_rejected`.
 
 ## 9. Demo Simulation
@@ -342,6 +345,7 @@ FUNCTION simulateOrderCompleted(orderId, targetStation):
 
 This is the only supported zero-IR bypass. It exists for lab demonstrations when
 physical dispensing or cart sensors are unavailable.
+
 
 ## 10. Ultrasonic Obstacle Safety
 
@@ -376,9 +380,10 @@ BACKEND ON obstacle_cleared:
 
 Emergency stop remains enabled in the frontend regardless of obstacle state.
 
+
 ## 11. Device Online/Offline Detection
 
-An MQTT broker connection proves only that the backend is online. It does not
+An MQTT broker connection proves only that the backend is online . It does not
 prove that either ESP32 is online.
 
 ```text
@@ -404,7 +409,7 @@ ON any valid status/event:
 
 ## 12. Manual Keyboard Control
 
-Keyboard motion is active only while robot manual mode is on.
+Keyboard motion is active only while the robot manual mode is on.
 
 ```text
 ON keydown:
@@ -422,8 +427,9 @@ ON movement keyup:
     SEND stop
 ```
 
-Movement continues until key release or explicit stop. The frontend does not
+Movement continues until the key release or explicit stop . The frontend does not
 depend on `durationMs` for motor safety.
+
 
 ## 13. Delivery Completion
 
@@ -443,15 +449,16 @@ ON customer/admin confirms receipt:
         order.status = completed
 ```
 
-Receipt completion is best-effort: the business event is recorded even if one
-device does not acknowledge, while the response clearly reports the issue.
+Receipt completion is best-effort : the business event is recorded even if one
+device does not acknowledge , while the response clearly reports the issue.
+
 
 ## 14. Consumer Progress Override
 
 The clickable progress numbers are an explicit demonstration tool:
 
 | Step | Forced backend status |
-| --- | --- |
+| ---  | --- |
 | 1 | `robot_ready` |
 | 2 | `vending_dispensing` |
 | 3 | `robot_delivering` |
@@ -465,12 +472,13 @@ append source and step to timeline
 return updated order
 ```
 
-This endpoint does not publish MQTT commands. It changes display/business state
+This endpoint does not publish MQTT commands. It changes display or business state
 only and should not be confused with real physical progression.
+
 
 ## 15. Telemetry
 
-Telemetry is intentionally separate from command acknowledgements.
+Telemetry is intentionally separate from the command acknowledgements.
 
 ```text
 Admin opens telemetry:
@@ -492,7 +500,8 @@ Admin closes telemetry:
     SEND stop_telemetry
 ```
 
-The ESP32-CAM is optional and is not part of this telemetry requirement.
+The ESP32-CAM is optional here and it is not part of this telemetry requirement.
+
 
 ## 16. Location and Future Nearest-Path Logic
 
@@ -507,7 +516,7 @@ ON station selection:
     forward location in robot order commands
 ```
 
-Nearest-path calculation is a planned module, not current behavior. A future
+Nearest-path calculation is a planned module , not current behavior. A future
 implementation could use:
 
 ```text
@@ -530,7 +539,8 @@ RECALCULATE only when deviation or blocked edge exceeds threshold
 ```
 
 This requires a calibrated map/graph and should not be represented as complete
-until those data and algorithms exist in the backend.
+until those data and algorithms exist in backend.
+
 
 ## 17. Module Ownership
 
@@ -576,13 +586,14 @@ until those data and algorithms exist in the backend.
 | `503` | MQTT unavailable |
 | `504` | device acknowledgement timeout |
 
+
 ## 19. Production Hardening Roadmap
 
 Before treating the lab demo as a production service:
 
 1. replace in-memory orders with a transactional database;
 2. add idempotency keys for HTTP order creation;
-3. move authentication and authorization to the backend;
+3. move the authentication and authorization to the backend;
 4. never treat a browser-visible Vite key as a secret;
 5. integrate a real payment provider with signed webhooks;
 6. persist device events and audit history;
@@ -590,3 +601,9 @@ Before treating the lab demo as a production service:
 8. implement a calibrated route graph before claiming nearest-path routing;
 9. add automated integration tests with an MQTT device simulator; and
 10. define recovery rules for backend restarts during active physical orders.
+
+
+
+
+
+

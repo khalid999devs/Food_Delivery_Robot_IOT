@@ -1,7 +1,6 @@
 # SnackRoute Project Summary
 
-Use this document as a compact context handoff for developers or AI assistants
-working on this repository.
+Use this document as a concise context reference for developers and AI assistants working with this repository.
 
 ## Objective
 
@@ -57,6 +56,7 @@ Admin Dashboard ------/                      |
 The browser never receives MQTT credentials. It sends `x-api-key` to the REST
 backend. The backend publishes commands and subscribes to status, event, and
 telemetry topics.
+
 
 ## Device IDs and Topics
 
@@ -308,7 +308,8 @@ Implemented:
 - location storage in the in-memory order
 - forwarding location in robot order commands
 
-Planned, not implemented:
+
+Planned but not implemented:
 
 - station coordinate registry
 - Haversine nearest-station selection
@@ -340,6 +341,7 @@ Output: dist
 Production backend logging should use `LOG_LEVEL=off`. Real `.env` files and
 MQTT credentials must never be committed.
 
+
 ## Known Limitations
 
 - backend restart clears orders
@@ -350,6 +352,8 @@ MQTT credentials must never be committed.
 - no implemented GPS nearest-path engine
 - one active order and one pending non-stop command per device
 - demo override endpoints can change order presentation without hardware action
+
+
 
 See [ALGORITHMS_AND_BUSINESS_LOGIC.md](ALGORITHMS_AND_BUSINESS_LOGIC.md) for
 detailed pseudocode and state-transition logic.
